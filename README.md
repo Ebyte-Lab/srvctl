@@ -1,155 +1,184 @@
+
 # srvctl (Linux Server Control)
 
 **srvctl** is a modular, idempotent Linux server configuration framework designed for safety and predictability. Unlike standard bash scripts, it follows a strict **System Design Life Cycle** to prevent system lockouts and configuration drift.
 
+Built with a layered architecture, it separates user intent from OS implementation, ensuring that your server configurations are applied safely, predictably, and with an automatic safety net.
+
+---
+
 ## 🧠 Architecture Overview
-The system is built on a layered architecture to separate user intent from OS implementation:
-- **CLI Router:** Orchestrates commands and manages the execution flow.
-- **Module Layer:** Domain-specific logic (Networking, Security, DNS).
-- **Adapter Layer:** Abstracted OS logic (Netplan for Ubuntu, Network-scripts for RHEL).
-- **State Store:** Persistent tracking of system changes in `/var/lib/srvctl/state.json`.
+The system is built on a layered architecture:
+- **CLI Router (`bin/srvctl`):** Orchestrates commands and manages the execution flow.
+- **Module Layer (`modules/`):** Domain-specific logic (Networking, System, Security).
+- **Adapter Layer (`adapters/`):** Abstracted OS logic (e.g., Netplan/Systemd for Ubuntu, NetworkManager for RHEL).
+- **State Store:** Persistent tracking of system changes (defaults to `/var/lib/srvctl/state.json`).
+- **Core Engine (`core/`):** Handles shared logic like logging, safe execution, and backups.
 
-## 🛠 Module Lifecycle (The Contract)
-Every module in `srvctl` must implement the following phases:
-1. **Init:** Environment and permission checks.
-2. **Check:** Pre-condition validation (Input/System readiness).
-3. **Plan:** Dry-run mode showing intended file diffs.
-4. **Apply:** Atomic execution with mandatory backups.
-5. **Verify:** Post-condition health checks.
-6. **Rollback:** Automatic restoration on verification failure.
+## 🛡 Safety Features
+- **Idempotency:** Running the same command multiple times results in no unnecessary system changes.
+- **Auto-Rollback:** If the `verify()` phase fails after applying a change (e.g., losing network connectivity or SSH access), the system automatically restores the last known good configuration.
+- **Atomic Writes:** Configuration files are never edited directly in-place. We use a temporary-copy-and-move strategy to prevent file corruption.
+- **Dry-Run Mode:** See exactly what will change before it happens using the `--dry-run` flag.
 
-## 🚀 Getting Started
+---
 
-### Prerequisites
-- Ubuntu 22.04+ (Initial MVP target)
-- Root/Sudo privileges
+## 📋 Requirements
+- **OS:** Ubuntu 22.04+ (Initial MVP target)
+- **Privileges:** Root / `sudo` access
+- **Dependencies:** `jq`, `iproute2` (for the `ip` command), `netplan.io` 
+*(Note: If installing via the `.deb` package, dependencies are handled automatically).*
 
-### Installation
+---
+
+## 🚀 Installation
+
+### Option 1: Debian Package (Recommended for Ubuntu)
+If you have the compiled `.deb` package (e.g., `srvctl_1.0.0-1_all.deb`), you can install it easily. This will automatically install dependencies and place files in the correct system directories (`/usr/bin/` and `/usr/share/srvctl/`).
+
 ```bash
-git clone https://github.com/yourusername/srvctl.git
-cd srvctl
-chmod +x bin/srvctl
-sudo ln -s $(pwd)/bin/srvctl /usr/local/bin/srvctl
+sudo apt update
+sudo apt install ./srvctl_1.0.0-1_all.deb
+
 ```
 
-### Usage Examples
-**Configure a Static IP:**
-```bash
-# Pre-flight check
-srvctl network static-ip check --ip 192.168.1.50 --iface eth0
+### Option 2: Manual Build & Install (From Source)
 
+To build and install the Debian package directly from the source code:
+
+```bash
+# 1. Install build tools
+sudo apt update && sudo apt install build-essential debhelper devscripts
+
+# 2. Clone the repository
+git clone [https://github.com/Ebyte-Lab/srvctl.git](https://github.com/Ebyte-Lab/srvctl.git)
+cd srvctl
+
+# 3. Build the Debian package
+dpkg-buildpackage -us -uc
+
+# 4. Install the newly built package (located one directory up)
+sudo apt install ../srvctl_*.deb
+
+```
+
+---
+
+## 💻 Usage
+
+The basic syntax is:
+`srvctl <domain> <module> <action> [options]`
+
+### 1. Network Management
+
+**Configure a Static IP:**
+
+```bash
 # See what will change (Dry-run)
-srvctl network static-ip plan --ip 192.168.1.50
+sudo srvctl network static_ip plan --ip 192.168.1.50 --iface eth0
 
 # Apply changes with auto-verify and rollback
-srvctl network static-ip apply --ip 192.168.1.50
-```
-This is a senior-level project setup. It reflects the **Layered Architecture** and **Module Lifecycle** we designed.
+sudo srvctl network static_ip apply --ip 192.168.1.50 --iface eth0
 
-### 1. The Repository Structure
-Create your GitHub repository with this directory layout. This structure ensures that domain logic (Modules) is separated from system logic (Adapters).
+```
+
+**Configure DHCP:**
+
+```bash
+sudo srvctl network dhcp apply --iface eth0
+
+```
+
+### 2. System Management
+
+**Change Hostname:**
+
+```bash
+# Note: You must export the target or set it in your environment
+export HOSTNAME_TARGET="prod-db-01"
+sudo srvctl system hostname plan
+sudo srvctl system hostname apply
+
+```
+
+### 3. Security Management
+
+**Configure SSH (Disable Root Login & Password Auth):**
+
+```bash
+export SSH_PERMIT_ROOT_LOGIN="no"
+export SSH_PASSWORD_AUTHENTICATION="no"
+sudo srvctl security ssh_config apply
+
+```
+
+---
+
+## 🛠 Module Lifecycle (The Contract)
+
+Every module in `srvctl` enforces the following execution phases. If you are extending the framework, your module must implement these functions (e.g., `module_init`, `module_apply`):
+
+1. **Init:** Environment and required command checks.
+2. **Check:** Pre-condition validation (Input/System readiness).
+3. **Plan:** Dry-run mode showing intended file diffs without making changes.
+4. **Apply:** Atomic execution with mandatory backups.
+5. **Verify:** Post-condition health checks (e.g., pinging the gateway).
+6. **Rollback:** Automatic restoration on verification failure.
+
+---
+
+## 📂 Project Structure
 
 ```text
 srvctl/
+├── Makefile                # Defines system installation paths
+├── debian/                 # Debian packaging metadata and rules
 ├── bin/
-│   └── srvctl              # Main entry point (the executable)
-├── core/
-│   ├── logger.sh           # Logging engine (Info, Warn, Error)
-│   ├── state_engine.sh     # JSON state management
+│   └── srvctl              # Main CLI entry point
+├── core/                   # Core Engine Framework
 │   ├── backup_manager.sh   # Config backup/restore logic
-│   └── executor.sh         # Safe command execution wrapper
+│   ├── executor.sh         # Safe command execution wrapper
+│   ├── logger.sh           # Logging engine (Info, Warn, Error)
+│   └── state_engine.sh     # JSON state management
 ├── modules/                # Domain Logic
 │   ├── network/
-│   │   ├── static_ip.sh    # Static IP implementation
-│   │   └── dhcp.sh
-│   ├── system/
-│   │   └── hostname.sh
-│   └── security/
-│       └── ssh_config.sh
+│   │   ├── dhcp.sh
+│   │   └── static_ip.sh
+│   ├── security/
+│   │   └── ssh_config.sh
+│   └── system/
+│       └── hostname.sh
 ├── adapters/               # OS Abstraction Layer
-│   ├── ubuntu/
-│   │   ├── netplan.sh      # Ubuntu-specific network logic
-│   │   └── systemd.sh
-│   └── rhel/
-│       └── network.sh
+│   ├── rhel/
+│   │   └── network.sh
+│   └── ubuntu/
+│       ├── netplan.sh
+│       └── systemd.sh
 ├── lib/
 │   └── common.sh           # Shared helper functions
-├── tests/                  # Unit and Integration tests
-│   └── test_network.sh
-└── README.md               # Documentation
+└── tests/                  # Unit and Integration tests
+    └── test_network.sh
+
 ```
 
 ---
 
-### 2. The Main Entry Point (`bin/srvctl`)
-This script routes commands like `srvctl network static-ip apply`.
+## 🤝 Contributing
 
-```bash
-#!/usr/bin/env bash
+We welcome contributions! To add a new module:
 
-# srvctl: Senior-level Linux Configuration Tool
-# Syntax: srvctl <domain> <module> <action> [options]
-
-set -e
-
-# Load Core Services
-source "$(dirname "$0")/../core/logger.sh"
-source "$(dirname "$0")/../core/executor.sh"
-
-DOMAIN=$1
-MODULE=$2
-ACTION=$3
-
-if [[ -z "$DOMAIN" || -z "$MODULE" || -z "$ACTION" ]]; then
-    log_error "Usage: srvctl <domain> <module> <action>"
-    exit 1
-fi
-
-# Route to the specific module
-MODULE_PATH="$(dirname "$0")/../modules/$DOMAIN/$MODULE.sh"
-
-if [[ -f "$MODULE_PATH" ]]; then
-    source "$MODULE_PATH"
-    # Execute the lifecycle action (e.g., static_ip_apply)
-    "${MODULE}_${ACTION}"
-else
-    log_error "Module $DOMAIN/$MODULE not found."
-    exit 1
-fi
-```
+1. Create a new folder under `modules/<domain>/`.
+2. Create your module script (e.g., `firewall.sh`).
+3. Implement the 6 standard lifecycle functions (`init`, `check`, `plan`, `apply`, `verify`, `rollback`).
+4. Ensure your script is completely idempotent (it should safely exit `0` if the configuration is already applied).
+5. Open a Pull Request.
 
 ---
 
+## 📄 License
 
-## 🛡 Safety Features
-- **Idempotency:** Running the same command twice results in no system changes.
-- **Auto-Rollback:** If `verify()` fails (e.g., SSH connection lost), the system automatically restores the last known good configuration.
-- **Atomic Writes:** No configuration file is edited in-place; we use a temporary-copy-and-move strategy to prevent corruption.
+This project is licensed under the **Apache License 2.0**. See the `LICENSE` file for details.
 
-## 📅 Roadmap
-- [ ] Week 1: CLI Skeleton and Router
-- [ ] Week 2: State Engine and Logging
-- [ ] Week 3: Ubuntu Networking Adapters
-- [ ] Week 4: Security and Hostname Modules
-- [ ] Week 5: Rollback Engine Testing
-
-
----
-
-### 4. How to Initialize the Project
-Run these commands in your terminal to start:
-
-```bash
-mkdir -p srvctl/{bin,core,modules/{network,system,security},adapters/{ubuntu,rhel},lib,tests}
-touch srvctl/bin/srvctl
-touch srvctl/core/{logger,state_engine,backup_manager,executor}.sh
-touch srvctl/README.md
-chmod +x srvctl/bin/srvctl
 ```
 
-**Why this works for your portfolio:**
-1.  **Professionalism:** It shows you understand how to organize code at scale.
-2.  **Safety:** The `bin/srvctl` script proves you can build a command router.
-3.  **Clarity:** The `README` speaks the language of Senior Engineers (Idempotency, Atomicity, Abstraction).
-
-
+```
