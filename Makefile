@@ -2,6 +2,10 @@ PREFIX ?= /usr
 BINDIR = $(PREFIX)/bin
 SHAREDIR = $(PREFIX)/share/srvctl
 
+# This prevents `make` from running `install` by default
+all:
+	@echo "Nothing to compile. Use 'make install' to install the scripts."
+
 install:
 	# Create directories
 	install -d $(DESTDIR)$(BINDIR)
