@@ -1,0 +1,54 @@
+name: Build and Release APT Repository
+
+on:
+  push:
+    branches:
+      - main  # Triggers every time code is merged/pushed to main
+  workflow_dispatch: # Allows you to run it manually from the GitHub UI
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to push the new repo files
+
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Install Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential debhelper devscripts dpkg-dev
+
+      - name: 📦 Build Debian Package
+        run: |
+          # This builds the package and places the .deb one directory up
+          dpkg-buildpackage -us -uc
+
+      - name: 🔄 Fetch Existing APT Repo (Preserve old versions)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-dir
+        continue-on-error: true # Fails gracefully if the gh-pages branch doesn't exist yet
+
+      - name: ⚙️ Generate APT Index
+        run: |
+          # Ensure directories exist
+          mkdir -p gh-pages-dir/amd64
+          
+          # Copy the newly built .deb file into the repo structure
+          cp ../srvctl_*.deb gh-pages-dir/amd64/
+          
+          # Navigate to the repo and generate the new Packages.gz index
+          cd gh-pages-dir
+          dpkg-scanpackages amd64 /dev/null | gzip -9c > amd64/Packages.gz
+
+      - name: 🚀 Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages-dir
+          publish_branch: gh-pages
+          keep_files: true # Ensures older .deb versions are not deleted
