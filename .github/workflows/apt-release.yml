@@ -45,6 +45,9 @@ jobs:
           cd gh-pages-dir
           dpkg-scanpackages amd64 /dev/null | gzip -9c > amd64/Packages.gz
 
+          # Create a landing page for browser visibility (Fixes ERR_TIMED_OUT)
+          echo "<html><body><h1>srvctl APT Repository</h1><p>Status: Online</p><p>Install using: <code>sudo apt install srvctl</code></p></body></html>" > index.html
+
       - name: 🚀 Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
