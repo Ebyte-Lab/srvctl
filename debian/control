@@ -1,0 +1,15 @@
+Source: srvctl
+Section: admin
+Priority: optional
+Maintainer: Ebedi Meleck <ituzeebedi12@gmail.com>
+Build-Depends: debhelper (>= 11)
+Standards-Version: 4.5.0
+Homepage: https://github.com/Ebyte-Lab/srvctl
+
+Package: srvctl
+Architecture: all
+Depends: ${misc:Depends}, jq, iproute2, netplan.io
+Description: Modular, idempotent Linux server configuration framework
+ srvctl is a command-line tool designed for safe and predictable
+ Linux server configuration. It separates intent from OS implementation
+ and features an auto-rollback safety net.
