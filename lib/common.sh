@@ -8,9 +8,13 @@ srvctl_script_dir() {
 }
 
 srvctl_project_root() {
-    local script_dir
-    script_dir="$(srvctl_script_dir)"
-    cd "$script_dir/.." && pwd
+    if [[ -d "/usr/share/srvctl" ]]; then
+        printf '%s\n' "/usr/share/srvctl"
+    else
+        local script_dir
+        script_dir="$(srvctl_script_dir)"
+        cd "$script_dir/.." && pwd
+    fi
 }
 
 is_root() {
